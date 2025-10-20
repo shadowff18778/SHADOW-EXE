@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lecteur Vidéo Super Stylé</title>
+    <!-- Chargement de Tailwind CSS pour un style rapide et responsive -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configuration Tailwind pour le thème sombre et les couleurs rouges -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary-red': '#E50914', // Un rouge puissant, style Netflix/Cinéma
+                        'dark-bg': '#141414',
+                        'control-bg': 'rgba(25, 25, 25, 0.8)',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Personnalisation CSS pour le lecteur */
+        body {
+            /* Image de fond stylée et fluide (sera visible à travers le splash screen flouté) */
+            background-image: url('https://cdn.wallpapersafari.com/6/6/mHiYFy.jpg');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed; 
+            background-color: #000; /* Fallback */
+            
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex; 
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        /* Styles pour le Splash Screen */
+        #splashScreen {
+            /* Assure que l'image de fond est la même, mais l'overlay la floute */
+            background-image: inherit; 
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }
+
+        /* 1. NOUVEAU: Animation du Titre: Opacité et Translation douce (plus fluide) */
+        @keyframes title-reveal {
+            0% { opacity: 0; transform: translateY(20px); filter: blur(5px); }
+            100% { opacity: 1; transform: translateY(0); filter: blur(0); text-shadow: 0 0 5px rgba(229, 9, 20, 0.2); }
+        }
+
+        /* 2. Animation du Loader (la barre elle-même) */
+        @keyframes loader-fade {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+        @keyframes loader-fill {
+            0% { width: 0%; }
+            /* Animation super fluide de la barre de chargement "de fou malade" */
+            100% { width: 100%; }
+        }
+
+        /* 3. Animation du Footer */
+        @keyframes footer-fade {
+            0% { opacity: 0; transform: translateY(10px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Classes utilitaires pour les animations */
+        .animate-title-reveal {
+            /* Utilisation d'une courbe d'accélération 'ease-out' pour plus de douceur */
+            animation: title-reveal 1.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+        }
+        .animate-loader-fade {
+            animation: loader-fade 0.5s ease-out forwards;
+        }
+        .animate-loader-fill {
+            /* Dure 3.5 secondes pour s'adapter à la fin de l'intro */
+            animation: loader-fill 3.5s ease-in-out forwards;
+        }
+        .animate-footer-fade {
+            animation: footer-fade 1.5s cubic-bezier(0.2, 0.8, 0.4, 1) forwards;
+        }
+
+
+        /* Styles du Lecteur Vidéo (maintenus) */
+        #mainContent {
+             width: 95%;
+             max-width: 1200px; 
+             margin: 0 auto;
+             flex-grow: 1; 
+             padding-top: 5rem; 
+        }
+        
+        #videoContainer {
+            aspect-ratio: 16 / 9;
+            width: 100%;
+            max-width: 900px;
+            background-color: #000;
+            position: relative;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 1rem auto 3rem; 
+            cursor: pointer;
+        }
+
+        .icon {
+            fill: white;
+            transition: fill 0.2s;
+            width: 24px;
+            height: 24px;
+        }
+        .icon:hover {
+            fill: theme('colors.primary-red');
+        }
+
+        #controlsWrapper {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            pointer-events: none;
+            padding-top: 2rem;
+            background: linear-gradient(to top, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0) 100%);
+            z-index: 10;
+        }
+
+        #videoContainer.controls-visible #controlsWrapper {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        #videoContainer.controls-visible #centerPlayButton {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .progress-bar-track {
+            height: 5px;
+            background-color: rgba(255, 255, 255, 0.2);
+            position: relative;
+            cursor: pointer;
+            transition: height 0.1s ease;
+        }
+        .progress-bar-track:hover {
+            height: 8px;
+        }
+
+        #centerPlayButton {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: background-color 0.2s, opacity 0.3s;
+            z-index: 20;
+        }
+
+    </style>
+</head>
+<body class="bg-dark-bg">
+    
+    <!-- NOUVEAU: SPLASH SCREEN D'INTRODUCTION (6 secondes) -->
+    <div id="splashScreen" class="fixed inset-0 z-[100] flex flex-col items-center justify-center text-white transition-opacity duration-1000 ease-in-out">
+        <!-- Overlay pour le flou et l'opacité sombre sur l'image de fond du body -->
+        <div class="absolute inset-0 bg-dark-bg/80 backdrop-blur-md"></div> 
+        
+        <!-- Le conteneur principal des éléments du splash, centré verticalement par défaut -->
+        <div class="relative z-10 flex flex-col items-center justify-center w-full h-full">
+            
+            <!-- Conteneur pour le Titre (plus centré verticalement) -->
+            <div class="flex-grow flex items-center justify-center">
+                <!-- Titre Animé : SHADOW STREAM (Adapté pour mobile) -->
+                <h1 id="splashTitle" class="text-3xl md:text-6xl font-extrabold tracking-widest text-primary-red uppercase opacity-0 animate-title-reveal" style="animation-delay: 0.5s;">
+                    SHADOW STREAM
+                </h1>
+            </div>
+
+            <!-- Conteneur pour le Loader et le Footer (Poussé vers le bas) -->
+            <div class="flex flex-col items-center pb-16 md:pb-24">
+                <!-- Barre de Chargement Animée (Chargement de fou malade) -->
+                <div id="splashLoader" class="w-48 md:w-64 h-1 bg-gray-700 mt-6 rounded-full overflow-hidden opacity-0 animate-loader-fade" style="animation-delay: 2s;">
+                    <div class="h-full bg-primary-red rounded-full animate-loader-fill" style="animation-delay: 2.5s;"></div>
+                </div>
+
+                <!-- Petit texte stylé : Powered By SHADOW (Apparition fluide) -->
+                <p id="splashFooter" class="text-sm md:text-base mt-8 md:mt-12 text-gray-300 opacity-0 animate-footer-fade" style="animation-delay: 4.5s;">
+                    Powered By <span class="font-bold tracking-wider text-primary-red">SHADOW</span>
+                </p>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- FENÊTRE MODALE DE REMERCIEMENT (FOLLOW) -->
+    <div id="thankYouModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 opacity-0 transition-opacity duration-500 hidden">
+        <div id="modalContent" class="bg-dark-bg p-8 w-full max-w-sm md:max-w-md rounded-[3rem] shadow-2xl border border-primary-red/50 text-center transform transition-all duration-500 scale-90 opacity-0">
+            
+            <div class="mb-6">
+                <img id="modalIcon" src="https://i.imgur.com/mAI6nKp.png" alt="SHADOW Logo" class="w-24 h-24 mx-auto rounded-full ring-4 ring-primary-red/70 object-cover shadow-lg shadow-primary-red/40" onerror="this.onerror=null;this.src='https://placehold.co/96x96/E50914/FFFFFF?text=S'">
+            </div>
+            
+            <h3 class="text-3xl font-extrabold text-white mb-3">Soutenez le créateur !</h3>
+            <p class="text-gray-300 mb-8 text-base leading-relaxed">
+                Ce lecteur vidéo est le fruit d'une passion. Pour remercier le développeur de ce projet, faites un petit geste en vous abonnant gratuitement à son compte.
+            </p>
+
+            <a id="followButton" href="https://www.tiktok.com/@shadow_ff18?_t=ZN-90hlF5f7oDm&_r=1" target="_blank" class="block w-full py-3 rounded-full text-lg font-bold uppercase transition-all duration-300 transform scale-100 bg-primary-red text-white hover:bg-red-700 hover:scale-[1.02] shadow-xl shadow-primary-red/30 focus:outline-none focus:ring-4 focus:ring-primary-red/50">
+                Follow SHADOW
+            </a>
+
+            <button id="closeModalBtn" class="mt-4 text-gray-500 text-sm hover:text-white transition duration-300 font-medium">
+                Peut-être plus tard
+            </button>
+        </div>
+    </div>
+    
+    <!-- FENÊTRE MODALE DE REPRISE (RESUME) -->
+    <div id="resumeModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 opacity-0 transition-opacity duration-500 hidden">
+        <div id="resumeModalContent" class="bg-dark-bg p-8 w-full max-w-sm md:max-w-md rounded-[3rem] shadow-2xl border border-primary-red/50 text-center transform transition-all duration-500 scale-90 opacity-0">
+            
+            <svg class="w-12 h-12 text-primary-red mx-auto mb-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14h2v2h-2v-2zm-1-8h4v6h-4V8z"/>
+                <circle cx="12" cy="11" r="1.5"/>
+            </svg>
+
+            <h3 class="text-3xl font-extrabold text-white mb-2">Reprendre la lecture ?</h3>
+            <p class="text-gray-300 mb-8 text-base leading-relaxed">
+                Nous avons trouvé une session enregistrée <span id="savedTimeDisplay" class="text-primary-red font-semibold"></span>.
+            </p>
+
+            <div class="flex flex-col space-y-4">
+                <button id="resumeButton" class="w-full py-3 rounded-lg text-lg font-bold transition-all duration-300 bg-primary-red text-white hover:bg-red-700 shadow-xl shadow-primary-red/30 focus:outline-none focus:ring-4 focus:ring-primary-red/50">
+                    Reprendre (5s avant)
+                </button>
+                <button id="restartButton" class="w-full py-3 rounded-lg text-lg font-bold transition-all duration-300 border border-white/50 text-white hover:bg-white/10 focus:outline-none">
+                    Recommencer depuis le début
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- 1. Header SHADOW STREAM (FIXE) -->
+    <header class="fixed top-0 left-0 w-full bg-dark-bg/80 backdrop-blur-sm py-4 px-4 md:px-8 border-b border-primary-red/50 shadow-xl z-30">
+        <div class="max-w-7xl mx-auto text-center">
+            <h1 class="text-2xl md:text-4xl font-extrabold tracking-widest text-primary-red uppercase">
+                SHADOW STREAM
+            </h1>
+        </div>
+    </header>
+
+    <!-- 2. Contenu Principal (caché au début) -->
+    <div id="mainContent" class="opacity-0 transition-opacity duration-500">
+
+        <!-- Titre de la Vidéo -->
+        <h2 class="text-xl md:text-3xl text-white font-bold mt-6 mb-3 text-center uppercase tracking-wide">
+            TITRE DE LA VIDÉO
+        </h2>
+
+        <!-- Lecteur Vidéo Conteneur -->
+        <div id="videoContainer" class="rounded-xl shadow-2xl mx-auto">
+            <!-- 1. Le Lecteur Vidéo -->
+            <video id="videoPlayer" class="w-full h-full" preload="metadata" playsinline>
+                <!-- L'URL que vous avez fournie -->
+                <source src="https://cinecake.xyz/movies/Evanouis.mp4" type="video/mp4">
+                Votre navigateur ne supporte pas la balise vidéo.
+            </video>
+
+            <!-- 2. Chargement Stylé -->
+            <div id="loadingSpinner" class="hidden"></div>
+
+            <!-- 3. Bouton Central (Play/Pause) -->
+            <div id="centerPlayButton" class="group transition-opacity duration-300">
+                <svg id="centerPlayIcon" class="w-8 h-8 text-white transition-transform group-hover:scale-110" viewBox="0 0 24 24" fill="currentColor">
+                    <!-- Icône Play -->
+                    <path d="M8 5v14l11-7z"/>
+                </svg>
+            </div>
+
+            <!-- 4. Wrapper des Contrôles (Affiché/Masqué par JS) -->
+            <div id="controlsWrapper" class="relative">
+
+                <!-- A. Barre de Progression Cliquable -->
+                <div id="progressBarTrack" class="progress-bar-track mx-3 mb-2" role="slider" aria-label="Temps de lecture">
+                    <div id="progressBarFill" class="progress-bar-fill">
+                        <div class="progress-bar-handle"></div>
+                    </div>
+                </div>
+
+                <!-- B. Barre des Contrôles Principaux -->
+                <div id="controlsBar" class="flex items-center justify-between p-3">
+                    
+                    <div class="flex items-center space-x-3">
+                        <!-- Bouton Play/Pause -->
+                        <button id="playPauseBtn" class="p-1">
+                            <svg id="playIcon" class="icon" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                            <svg id="pauseIcon" class="icon hidden" viewBox="0 0 24 24">
+                                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                            </svg>
+                        </button>
+
+                        <!-- Affichage du Temps -->
+                        <span id="timeDisplay" class="text-white text-sm font-medium">00:00 / 00:00</span>
+                    </div>
+
+                    <div class="flex items-center space-x-3">
+                        <!-- Contrôle du Volume -->
+                        <div class="flex items-center space-x-1">
+                            <button id="muteBtn" class="p-1">
+                                <svg id="volumeIcon" class="icon" viewBox="0 0 24 24">
+                                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1-3.22-2.5-4v8c1.5-.78 2.5-2.23 2.5-4z"/>
+                                </svg>
+                            </button>
+                            <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1" class="w-16 h-1 bg-gray-700 appearance-none rounded-full cursor-pointer" style="accent-color: var(--primary-red);">
+                        </div>
+
+                        <!-- Bouton Plein Écran -->
+                        <button id="fullscreenBtn" class="p-1">
+                            <svg id="fullScreenIcon" class="icon" viewBox="0 0 24 24">
+                                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div> <!-- Fin mainContent -->
+
+    <!-- 3. Footer Stylé et Animé (caché au début) -->
+    <footer class="w-full text-center py-4 mt-auto opacity-0 transition-opacity duration-500">
+        <p class="text-gray-400 text-sm">
+            Powered By 
+            <a id="footerFollowLink" href="https://www.tiktok.com/@shadow_ff18?_t=ZN-90hlF5f7oDm&_r=1" target="_blank" class="text-primary-red font-bold tracking-wider hover:text-red-600 transition duration-300 shadow-glow">
+                SHADOW
+            </a>
+        </p>
+    </footer>
+
+    <script>
+        // --- CONSTANTES ---
+        const AUTOHIDE_TIMEOUT = 5000;
+        const STORAGE_KEY_TIME = 'videoPlaybackTime';
+        const STORAGE_KEY_FOLLOW = 'followedShadow';
+        let controlsTimeout;
+        let savedPlaybackTime = null; // Variable pour stocker le temps chargé
+
+        // --- Récupération des Éléments du DOM ---
+        const splashScreen = document.getElementById('splashScreen'); // NOUVEAU
+        const mainContent = document.getElementById('mainContent');
+        const siteFooter = document.querySelector('footer');
+        
+        const videoContainer = document.getElementById('videoContainer');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const centerPlayButton = document.getElementById('centerPlayButton');
+        const playIcon = document.getElementById('playIcon');
+        const pauseIcon = document.getElementById('pauseIcon');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const progressBarTrack = document.getElementById('progressBarTrack');
+        const progressBarFill = document.getElementById('progressBarFill');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        const muteBtn = document.getElementById('muteBtn');
+        const volumeSlider = document.getElementById('volumeSlider');
+        
+        // Éléments de la modale Follow
+        const thankYouModal = document.getElementById('thankYouModal');
+        const modalContent = document.getElementById('modalContent');
+        const followButton = document.getElementById('followButton');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        
+        // Éléments de la modale Resume
+        const resumeModal = document.getElementById('resumeModal');
+        const resumeModalContent = document.getElementById('resumeModalContent');
+        const resumeButton = document.getElementById('resumeButton');
+        const restartButton = document.getElementById('restartButton');
+        const savedTimeDisplay = document.getElementById('savedTimeDisplay');
+
+
+        // --- Fonctions de Persistance (Local Storage) ---
+
+        /**
+         * Sauvegarde le temps de lecture actuel dans localStorage.
+         */
+        function saveTime() {
+            if (videoPlayer.currentTime > 5 && !videoPlayer.ended) {
+                try {
+                    localStorage.setItem(STORAGE_KEY_TIME, videoPlayer.currentTime.toFixed(2));
+                } catch (e) {
+                    console.error("Impossible de sauvegarder le temps dans localStorage:", e);
+                }
+            } else {
+                localStorage.removeItem(STORAGE_KEY_TIME);
+            }
+        }
+
+        /**
+         * Charge le temps de lecture sauvegardé depuis localStorage.
+         */
+        function loadTime() {
+            try {
+                const savedTime = localStorage.getItem(STORAGE_KEY_TIME);
+                return savedTime ? parseFloat(savedTime) : null;
+            } catch (e) {
+                console.error("Impossible de charger le temps depuis localStorage:", e);
+                return null;
+            }
+        }
+
+        // --- Fonctions des Contrôles (Logique inchangée) ---
+
+        function hideControls() {
+            clearTimeout(controlsTimeout);
+            videoContainer.classList.remove('controls-visible');
+        }
+
+        function showControls() {
+            videoContainer.classList.add('controls-visible');
+            resetControlTimeout();
+        }
+
+        function resetControlTimeout() {
+            clearTimeout(controlsTimeout);
+            if (!videoPlayer.paused) {
+                controlsTimeout = setTimeout(hideControls, AUTOHIDE_TIMEOUT);
+            }
+        }
+        
+        // --- Fonctions de base (maintenues) ---
+
+        function formatTime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            const displayM = m < 10 ? '0' + m : m;
+            const displayS = s < 10 ? '0' + s : s;
+            if (h > 0) {
+                const displayH = h < 10 ? '0' + h : h;
+                return `${displayH}:${displayM}:${displayS}`;
+            }
+            return `${displayM}:${displayS}`;
+        }
+
+        function togglePlayPause() {
+            if (videoPlayer.paused || videoPlayer.ended) {
+                videoPlayer.play().catch(e => console.error("Erreur de lecture:", e));
+            } else {
+                videoPlayer.pause();
+            }
+            updatePlayPauseIcons();
+            showControls(); 
+        }
+
+        function updatePlayPauseIcons() {
+            const isPlaying = !videoPlayer.paused && !videoPlayer.ended;
+            playIcon.classList.toggle('hidden', isPlaying);
+            pauseIcon.classList.toggle('hidden', !isPlaying);
+            if (videoPlayer.paused || videoPlayer.ended) {
+                 centerPlayButton.classList.remove('opacity-0', 'pointer-events-none');
+            } else {
+                 centerPlayButton.classList.add('opacity-0', 'pointer-events-none');
+            }
+        }
+
+        function updateTimeAndProgress() {
+            const currentTime = videoPlayer.currentTime;
+            const duration = videoPlayer.duration || 0;
+            timeDisplay.textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;
+
+            if (duration > 0) {
+                const percentage = (currentTime / duration) * 100;
+                progressBarFill.style.width = `${percentage}%`;
+            }
+        }
+
+        let isSeeking = false;
+        
+        function seek(event) {
+            const rect = progressBarTrack.getBoundingClientRect();
+            let clientX = event.clientX;
+
+            if (event.touches && event.touches.length > 0) {
+                clientX = event.touches[0].clientX;
+            }
+
+            const clickX = clientX - rect.left;
+            const percentage = Math.min(1, Math.max(0, clickX / rect.width));
+            
+            progressBarFill.style.width = `${percentage * 100}%`;
+
+            if (isSeeking) {
+                 videoPlayer.currentTime = percentage * videoPlayer.duration;
+            }
+            resetControlTimeout();
+        }
+
+        function updateVolume() {
+            videoPlayer.volume = volumeSlider.value;
+            videoPlayer.muted = (volumeSlider.value == 0);
+            resetControlTimeout();
+        }
+
+        function toggleMute() {
+            videoPlayer.muted = !videoPlayer.muted;
+            if (videoPlayer.muted) {
+                volumeSlider.value = 0;
+            } else {
+                 if (volumeSlider.value == 0) {
+                    volumeSlider.value = 0.5;
+                 }
+            }
+            videoPlayer.volume = volumeSlider.value;
+            resetControlTimeout();
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                if (videoContainer.requestFullscreen) {
+                    videoContainer.requestFullscreen();
+                } else if (videoContainer.webkitRequestFullscreen) { 
+                    videoContainer.webkitRequestFullscreen();
+                } else if (videoContainer.msRequestFullscreen) { 
+                    videoContainer.msRequestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) { 
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) { 
+                    document.msExitFullscreen();
+                }
+            }
+            resetControlTimeout();
+        }
+
+        function handleFullscreenChange() {
+            videoContainer.classList.toggle('fullscreen-active', !!document.fullscreenElement);
+        }
+        
+        function toggleLoading(show) { /* Placeholder pour spinner */ }
+
+        // --- Fonctions des Modales (Amélioration des transitions) ---
+
+        /**
+         * Anime l'entrée d'une fenêtre modale.
+         */
+        function animateModalIn(modal, content) {
+            modal.classList.remove('hidden');
+            requestAnimationFrame(() => {
+                modal.classList.add('opacity-100');
+                content.classList.remove('opacity-0', 'scale-90'); 
+                content.classList.add('opacity-100', 'scale-100');
+            });
+        }
+
+        /**
+         * Anime la sortie d'une fenêtre modale.
+         */
+        function animateModalOut(modal, content) {
+            content.classList.remove('opacity-100', 'scale-100');
+            content.classList.add('opacity-0', 'scale-90');
+            modal.classList.remove('opacity-100');
+            
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 500);
+        }
+
+
+        // --- Modale Follow ---
+
+        function showFollowModal() {
+            animateModalIn(thankYouModal, modalContent);
+        }
+
+        function hideFollowModal(nextAction = null) {
+            animateModalOut(thankYouModal, modalContent);
+            if (typeof nextAction === 'function') {
+                nextAction();
+            }
+        }
+
+        function handleFollowClick(e) {
+            e.preventDefault(); 
+            try {
+                localStorage.setItem(STORAGE_KEY_FOLLOW, 'true');
+            } catch (error) {
+                console.error("Erreur localStorage:", error);
+            }
+            window.open(e.currentTarget.href, '_blank'); 
+            
+            hideFollowModal(() => {
+                if (savedPlaybackTime) {
+                    setTimeout(() => showResumeModal(savedPlaybackTime), 1000); 
+                }
+            });
+        }
+        
+        // --- Modale Resume ---
+
+        function showResumeModal(savedTime) {
+            savedTimeDisplay.textContent = `à ${formatTime(savedTime)}`;
+            animateModalIn(resumeModal, resumeModalContent);
+        }
+
+        function handleResumePlayback() {
+            const seekTime = Math.max(0, savedPlaybackTime - 5);
+            videoPlayer.currentTime = seekTime;
+            videoPlayer.play();
+            localStorage.removeItem(STORAGE_KEY_TIME);
+            animateModalOut(resumeModal, resumeModalContent);
+        }
+
+        function handleRestartPlayback() {
+            videoPlayer.currentTime = 0;
+            videoPlayer.play();
+            localStorage.removeItem(STORAGE_KEY_TIME);
+            animateModalOut(resumeModal, resumeModalContent);
+        }
+        
+        // --- Logique de Séquence au Chargement (AVEC SPLASH SCREEN) ---
+
+        /**
+         * Logique normale de démarrage du lecteur après la fin du splash screen.
+         */
+        function startPlayerLogicAfterSplash() {
+            savedPlaybackTime = loadTime();
+            const hasFollowed = localStorage.getItem(STORAGE_KEY_FOLLOW) === 'true';
+
+            // 1. Initialisation du lecteur
+            videoPlayer.pause(); 
+            updatePlayPauseIcons();
+            updateVolume();
+            showControls();
+            clearTimeout(controlsTimeout); 
+
+            // 2. Logique des modales
+            if (!hasFollowed) {
+                showFollowModal();
+                closeModalBtn.onclick = () => {
+                    hideFollowModal(() => {
+                        if (savedPlaybackTime) {
+                            setTimeout(() => showResumeModal(savedPlaybackTime), 1000); 
+                        }
+                    });
+                };
+            } else {
+                if (savedPlaybackTime) {
+                    showResumeModal(savedPlaybackTime);
+                }
+            }
+
+            // 3. Écouteurs de la modale Resume
+            resumeButton.onclick = handleResumePlayback;
+            restartButton.onclick = handleRestartPlayback;
+        }
+
+
+        /**
+         * Démarre l'animation du splash screen et programme la transition.
+         */
+        function initializePlayer() {
+            // S'assure que le contenu principal est caché avant l'intro pour éviter un FOUC (Flash Of Unstyled Content)
+            mainContent.style.opacity = 0;
+            siteFooter.style.opacity = 0;
+
+            // Démarrage de la séquence d'introduction (6 secondes)
+            setTimeout(() => {
+                // 1. Déclenche l'animation de sortie du splash screen
+                splashScreen.style.opacity = 0;
+                
+                // 2. Révèle le contenu principal (header est déjà visible car fixed)
+                mainContent.style.opacity = 1;
+                siteFooter.style.opacity = 1;
+
+                // 3. Cache physiquement le splash screen après l'animation de fade out
+                setTimeout(() => {
+                    splashScreen.classList.add('hidden');
+                }, 1000); // 1000ms = durée de la transition CSS opacity du splash
+
+                // 4. Exécute la logique normale de démarrage
+                startPlayerLogicAfterSplash();
+
+            }, 6000); // 6 secondes comme demandé
+        }
+
+
+        // --- Configuration des Événements ---
+
+        // Événements de Persistance
+        videoPlayer.addEventListener('pause', saveTime);
+        videoPlayer.addEventListener('ended', () => localStorage.removeItem(STORAGE_KEY_TIME));
+        window.addEventListener('beforeunload', saveTime);
+        
+        // Événements de Lecture/Contrôles
+        videoPlayer.addEventListener('loadedmetadata', updateTimeAndProgress);
+        videoPlayer.addEventListener('timeupdate', updateTimeAndProgress);
+        videoPlayer.addEventListener('play', () => { 
+            updatePlayPauseIcons(); 
+            toggleLoading(false);
+            resetControlTimeout();
+        });
+        videoPlayer.addEventListener('pause', () => { 
+            updatePlayPauseIcons(); 
+            toggleLoading(false); 
+            clearTimeout(controlsTimeout);
+        });
+        
+        videoPlayer.addEventListener('waiting', () => toggleLoading(true));
+        videoPlayer.addEventListener('playing', () => toggleLoading(false));
+        videoPlayer.addEventListener('stalled', () => toggleLoading(true));
+        
+        // Logique Unifiée Clic/Tap (Play/Pause + Toggle Controls)
+        videoContainer.addEventListener('click', (e) => {
+            const isControlsClick = e.target.closest('#controlsWrapper');
+            const isCenterPlayClick = e.target.closest('#centerPlayButton');
+
+            if (isControlsClick) { return; }
+
+            if (isCenterPlayClick || !isControlsClick) {
+                togglePlayPause();
+
+                if (!videoPlayer.paused) {
+                    hideControls();
+                } else {
+                    showControls(); 
+                    clearTimeout(controlsTimeout); 
+                }
+            }
+        });
+
+
+        // Les interactions sur les contrôles DOIVENT réinitialiser le timer (Autohide)
+        document.getElementById('controlsWrapper').addEventListener('mousemove', resetControlTimeout);
+        document.getElementById('controlsWrapper').addEventListener('touchstart', resetControlTimeout);
+        document.getElementById('controlsBar').addEventListener('click', resetControlTimeout);
+
+        // Contrôles de Lecture (Bouton sur la barre)
+        playPauseBtn.addEventListener('click', togglePlayPause);
+        centerPlayButton.addEventListener('click', (e) => {
+            e.stopPropagation(); 
+            togglePlayPause();
+        });
+
+
+        // Contrôles de Progression (Seeking)
+        progressBarTrack.addEventListener('click', (e) => {
+            const rect = progressBarTrack.getBoundingClientRect();
+            let clientX = e.clientX;
+            const clickX = clientX - rect.left;
+            const percentage = Math.min(1, Math.max(0, clickX / rect.width));
+            videoPlayer.currentTime = percentage * videoPlayer.duration;
+            resetControlTimeout();
+        });
+        
+        // Gestion du Drag PC & Mobile
+        progressBarTrack.addEventListener('mousedown', (e) => { isSeeking = true; e.preventDefault(); resetControlTimeout(); });
+        document.addEventListener('mousemove', (e) => { if (isSeeking) { seek(e); } });
+        document.addEventListener('mouseup', () => { if (isSeeking) { isSeeking = false; } });
+        progressBarTrack.addEventListener('touchstart', (e) => { isSeeking = true; resetControlTimeout(); });
+        document.addEventListener('touchmove', (e) => { if (isSeeking) { seek(e); } });
+        document.addEventListener('touchend', () => { if (isSeeking) { isSeeking = false; } });
+
+
+        // Contrôles de Volume/Fullscreen
+        volumeSlider.addEventListener('input', updateVolume); 
+        muteBtn.addEventListener('click', toggleMute); 
+        fullscreenBtn.addEventListener('click', toggleFullscreen); 
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('msfullscreenchange', handleFullscreenChange);
+
+        // Événements de la Modale Follow (FollowButton est un lien donc géré différemment)
+        followButton.addEventListener('click', handleFollowClick);
+
+
+        // --- Initialisation ---
+        window.onload = initializePlayer;
+
+    </script>
+</body>
+</html>
+
